@@ -1,0 +1,176 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Suppliers & Procurement History</title>
+    <script src="nav.js"></script>
+</head>
+<body>
+    <div class="container">
+        <h1>🚚 Supplier Management & Ledger</h1>
+        
+        <div style="display: grid; grid-template-columns: 1.5fr 1fr; gap: 20px;">
+            <div class="card">
+                <h3>Register / Update Vendor</h3>
+                <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 10px;">
+                    <input id="sn" placeholder="Company Name">
+                    <input id="sc" placeholder="WhatsApp (e.g. 254...)">
+                    <input id="sl" placeholder="Office Location" style="grid-column: span 2;">
+                </div>
+                <button class="btn" onclick="saveSupplier()" style="width:100%; margin-top:15px; background:var(--primary);">💾 Save Supplier</button>
+            </div>
+
+            <div class="card" style="border-left: 5px solid #6366f1; background: #f5f3ff;">
+                <h3>Total Accounts Payable</h3>
+                <h2 id="totalOwedToSuppliers" style="color:#4338ca;">$0.00</h2>
+                <p style="font-size: 0.8rem; color: #666;">Outstanding debt based on unpaid invoices</p>
+            </div>
+        </div>
+
+        <div class="card" style="border-top: 5px solid var(--accent);">
+            <h3>📄 Supplier Audit (From Purchase History)</h3>
+            <p style="font-size:0.85rem; margin-bottom:15px; color:#666;">Generate itemized statements for any month based on restocking records.</p>
+            <div style="display:grid; grid-template-columns: 1fr 1fr 1.2fr; gap:15px; align-items:end;">
+                <div>
+                    <label>Select Vendor</label>
+                    <select id="vendorSelect" style="width:100%"></select>
+                </div>
+                <div>
+                    <label>Reference Month</label>
+                    <input type="month" id="statementMonth" style="width:100%">
+                </div>
+                <div style="display:flex; gap:10px;">
+                    <button class="btn" style="background:#25d366; flex:1;" onclick="supplierShare('wa')">WhatsApp</button>
+                    <button class="btn" style="background:var(--sidebar); flex:1;" onclick="supplierShare('pdf')">PDF Statement</button>
+                </div>
+            </div>
+        </div>
+
+        <div class="card">
+            <h3>Vendor Directory</h3>
+            <table id="sTable">
+                <thead>
+                    <tr>
+                        <th>Vendor Details</th>
+                        <th>Lifetime Batches</th>
+                        <th>Total Spend</th>
+                        <th>Current Debt</th>
+                        <th>Action</th>
+                    </tr>
+                </thead>
+                <tbody></tbody>
+            </table>
+        </div>
+    </div>
+
+    <script>
+        function saveSupplier() {
+            const name = document.getElementById('sn').value.trim();
+            const contact = document.getElementById('sc').value.trim();
+            const loc = document.getElementById('sl').value.trim();
+            if(!name) return alert("Supplier Name is required.");
+
+            const sups = JSON.parse(localStorage.getItem('suppliers')) || [];
+            const exist = sups.find(s => s.name.toLowerCase() === name.toLowerCase());
+
+            if(exist) {
+                exist.contact = contact; exist.location = loc;
+            } else {
+                sups.push({ name, contact, location: loc, balance: 0 });
+            }
+            localStorage.setItem('suppliers', JSON.stringify(sups));
+            location.reload();
+        }
+
+        function render() {
+            const sups = JSON.parse(localStorage.getItem('suppliers')) || [];
+            const pur = JSON.parse(localStorage.getItem('purchaseHistory')) || [];
+            const tbody = document.querySelector('#sTable tbody');
+            const vSelect = document.getElementById('vendorSelect');
+            
+            let grandTotalDebt = 0;
+            vSelect.innerHTML = '<option value="">-- Choose Vendor --</option>';
+
+            tbody.innerHTML = sups.map(s => {
+                // Calculation directly from purchaseHistory
+                const sPurchases = pur.filter(p => p.sup === s.name);
+                const sSpend = sPurchases.reduce((a, b) => a + (parseFloat(b.qty) * parseFloat(b.cp)), 0);
+                const bal = s.balance || 0;
+                grandTotalDebt += bal;
+
+                vSelect.innerHTML += `<option value="${s.name}">${s.name}</option>`;
+
+                return `<tr>
+                    <td><b>${s.name}</b><br><small>${s.contact || 'No Phone'} | ${s.location || 'Local'}</small></td>
+                    <td>${sPurchases.length} Order Batches</td>
+                    <td>$${sSpend.toFixed(2)}</td>
+                    <td style="font-weight:bold; color:${bal > 0 ? 'var(--danger)' : '#10b981'};">$${bal.toFixed(2)}</td>
+                    <td>
+                        <button class="btn" style="padding:6px 12px; background:#10b981;" onclick="recordPayment('${s.name}')">Record Payment</button>
+                    </td>
+                </tr>`;
+            }).join('');
+
+            document.getElementById('totalOwedToSuppliers').innerText = "$" + grandTotalDebt.toFixed(2);
+        }
+
+        function recordPayment(name) {
+            const sups = JSON.parse(localStorage.getItem('suppliers')) || [];
+            const s = sups.find(x => x.name === name);
+            const amt = parseFloat(prompt(`Record payment to ${name}.\nCurrently Owed: $${(s.balance || 0).toFixed(2)}\nEnter amount:`));
+            if(amt > 0) {
+                s.balance -= amt;
+                localStorage.setItem('suppliers', JSON.stringify(sups));
+                render();
+            }
+        }
+
+        function supplierShare(type) {
+            const name = document.getElementById('vendorSelect').value;
+            const monthVal = document.getElementById('statementMonth').value;
+            if(!name || !monthVal) return alert("Select Vendor and Month");
+
+            const [year, month] = monthVal.split('-');
+            const pur = JSON.parse(localStorage.getItem('purchaseHistory')) || [];
+
+            // Filtering history by matching MM/YYYY from the purchase date string
+            const filtered = pur.filter(p => {
+                const parts = p.date.split('/'); // Assumes MM/DD/YYYY
+                return p.sup === name && parts[0].padStart(2,'0') === month && parts[2] === year;
+            });
+
+            if(!filtered.length) return alert("No purchase records found for this vendor in the selected month.");
+
+            let total = 0;
+            let rows = "";
+            let waMsg = `*PROCUREMENT STATEMENT: ${name}*\nPeriod: ${month}/${year}\n---\n`;
+
+            filtered.forEach(p => {
+                const sub = p.qty * p.cp;
+                rows += `<tr><td>${p.date}</td><td>${p.name}</td><td>${p.qty}</td><td>$${sub.toFixed(2)}</td></tr>`;
+                waMsg += `• ${p.date}: ${p.name} (${p.qty}x) - $${sub.toFixed(2)}\n`;
+                total += sub;
+            });
+
+            if(type === 'wa') {
+                const ph = (JSON.parse(localStorage.getItem('suppliers')) || []).find(s => s.name === name)?.contact;
+                window.open(`https://wa.me/${ph}?text=${encodeURIComponent(waMsg + "\n*TOTAL PROCUREMENT: $" + total.toFixed(2) + "*")}`);
+            } else {
+                const win = window.open('', '_blank');
+                win.document.write(`
+                    <html><body style="font-family:sans-serif; padding:40px;">
+                    <h1 style="color:#333;">Vendor Purchase Statement</h1>
+                    <p><b>Vendor:</b> ${name} | <b>Period:</b> ${month}/${year}</p>
+                    <table border="1" style="width:100%; border-collapse:collapse; margin-top:20px;">
+                        <thead style="background:#f4f4f4;"><tr><th>Date</th><th>Item</th><th>Qty</th><th>Subtotal</th></tr></thead>
+                        <tbody>${rows}</tbody>
+                    </table>
+                    <h2 style="text-align:right; margin-top:20px;">Monthly Purchase Total: $${total.toFixed(2)}</h2>
+                    <p style="font-size:0.8rem; color:#666; margin-top:40px; border-top:1px solid #ccc; pt:10px;">Generated from Enterprise ERP Purchase History History</p>
+                    <script>window.print();<\/script></body></html>
+                `);
+            }
+        }
+        render();
+    </script>
+</body>
+</html>

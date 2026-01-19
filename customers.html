@@ -1,0 +1,156 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Customer CRM & Ledger</title>
+    <script src="nav.js"></script>
+</head>
+<body>
+    <div class="container">
+        <h1>👥 Customer CRM & Credit Ledger</h1>
+        
+        <div style="display: grid; grid-template-columns: 2fr 1fr; gap: 20px;">
+            <div class="card">
+                <h3>Register / Update Customer</h3>
+                <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 10px;">
+                    <input id="cn" placeholder="Full Name">
+                    <input id="cp" placeholder="Phone Number">
+                    <input id="cl" placeholder="Residence / Location" style="grid-column: span 2;">
+                </div>
+                <button class="btn" onclick="addCustomer()" style="width:100%; margin-top:15px;">Register Customer</button>
+            </div>
+
+            <div class="card" style="background: #fff5f5; border-left: 5px solid #ff4d4d;">
+                <h3>Accounts Receivable</h3>
+                <h2 id="totalOwed" style="color: #d32f2f;">$0.00</h2>
+                <p id="debtorCount" style="font-size: 0.9rem; color: #666;">0 customers with outstanding balance</p>
+            </div>
+        </div>
+
+        <div class="card" style="display: flex; gap: 15px; align-items: center;">
+            <input type="text" id="custSearch" placeholder="🔍 Search by name, phone, or residence..." oninput="render()" style="flex: 3;">
+            <label style="flex: 1; font-size: 0.9rem; cursor: pointer;">
+                <input type="checkbox" id="debtOnly" onchange="render()"> 🔴 Show Debtors Only
+            </label>
+        </div>
+
+        <div class="card">
+            <table id="ct">
+                <thead>
+                    <tr>
+                        <th>Customer Details</th>
+                        <th>Location</th>
+                        <th>Current Balance</th>
+                        <th>Loyalty</th>
+                        <th>Actions</th>
+                    </tr>
+                </thead>
+                <tbody></tbody>
+            </table>
+        </div>
+    </div>
+
+    <script>
+        function render() {
+            const cus = JSON.parse(localStorage.getItem('customers')) || [];
+            const term = document.getElementById('custSearch').value.toLowerCase();
+            const debtOnly = document.getElementById('debtOnly').checked;
+            const tbody = document.querySelector('#ct tbody');
+            
+            let totalOwed = 0;
+            let debtors = 0;
+
+            const filtered = cus.filter(c => {
+                const matchesSearch = c.name.toLowerCase().includes(term) || 
+                                    c.phone.includes(term) || 
+                                    (c.location && c.location.toLowerCase().includes(term));
+                const matchesDebt = debtOnly ? (c.balance > 0) : true;
+                return matchesSearch && matchesDebt;
+            });
+
+            tbody.innerHTML = filtered.map(c => {
+                if(c.balance > 0) {
+                    totalOwed += c.balance;
+                    debtors++;
+                }
+                
+                return `
+                    <tr>
+                        <td>
+                            <strong>${c.name}</strong><br>
+                            <small style="color:#666">${c.phone}</small>
+                        </td>
+                        <td>📍 ${c.location || 'Not set'}</td>
+                        <td style="color: ${c.balance > 0 ? '#d32f2f' : '#28a745'}; font-weight: bold;">
+                            $${(c.balance || 0).toFixed(2)}
+                        </td>
+                        <td>⭐ ${c.points || 0} pts</td>
+                        <td>
+                            <button class="btn" style="padding:5px 10px; background:#28a745;" onclick="settlePayment('${c.name}')">💰 Settle</button>
+                            <button class="btn" style="padding:5px 10px; background:#007bff;" onclick="openComposer('${c.name}', '${c.phone}', '${c.balance}')">✉️ Remind</button>
+                        </td>
+                    </tr>`;
+            }).join('');
+
+            document.getElementById('totalOwed').innerText = "$" + totalOwed.toFixed(2);
+            document.getElementById('debtorCount').innerText = `${debtors} customers with outstanding balance`;
+        }
+
+        function addCustomer() {
+            const name = document.getElementById('cn').value.trim();
+            const phone = document.getElementById('cp').value.trim();
+            const location = document.getElementById('cl').value.trim();
+            
+            if(!name || !phone) return alert("Name and Phone are required.");
+
+            const cus = JSON.parse(localStorage.getItem('customers')) || [];
+            const existing = cus.find(c => c.name.toLowerCase() === name.toLowerCase());
+
+            if (existing) {
+                existing.phone = phone;
+                existing.location = location;
+                alert("Updated existing customer details.");
+            } else {
+                cus.push({ name, phone, location, points: 0, balance: 0 });
+                alert("New customer registered.");
+            }
+
+            localStorage.setItem('customers', JSON.stringify(cus));
+            document.getElementById('cn').value = '';
+            document.getElementById('cp').value = '';
+            document.getElementById('cl').value = '';
+            render();
+        }
+
+        function settlePayment(name) {
+            const cus = JSON.parse(localStorage.getItem('customers')) || [];
+            const c = cus.find(x => x.name === name);
+            
+            const amount = parseFloat(prompt(`Settle payment for ${name}.\nCurrent Balance: $${c.balance.toFixed(2)}\nEnter amount paid:`));
+            
+            if(!isNaN(amount) && amount > 0) {
+                c.balance -= amount;
+                // Log payment to sales history as a "Debt Payment" type
+                const sales = JSON.parse(localStorage.getItem('salesHistory')) || [];
+                sales.push({
+                    date: new Date().toLocaleDateString(),
+                    customer: name,
+                    total: amount,
+                    type: "Debt Payment",
+                    items: []
+                });
+                localStorage.setItem('salesHistory', JSON.stringify(sales));
+                localStorage.setItem('customers', JSON.stringify(cus));
+                alert("Payment recorded and balance updated.");
+                render();
+            }
+        }
+
+        function openComposer(name, phone, balance) {
+            const msg = encodeURIComponent(`Hi ${name}, this is a friendly reminder from ${JSON.parse(localStorage.getItem('bizProfile'))?.name || 'our shop'}. Your current outstanding balance is $${parseFloat(balance).toFixed(2)}. Please let us know when you can settle this. Thank you!`);
+            window.open(`https://wa.me/${phone}?text=${msg}`, '_blank');
+        }
+
+        render();
+    </script>
+</body>
+</html>

@@ -1,0 +1,9 @@
+<!DOCTYPE html><html><head><title>Sales Ledger</title><script src="nav.js"></script></head>
+<body><div class="container">
+    <h1>Sales Ledger</h1>
+    <table id="st"><thead><tr><th>Date</th><th>Customer</th><th>Total Revenue</th></tr></thead><tbody></tbody></table>
+</div>
+<script>
+    const sales = JSON.parse(localStorage.getItem('salesHistory')) || [];
+    document.querySelector('#st tbody').innerHTML = sales.reverse().map(s => `<tr><td>\${s.date}</td><td>\${s.customer}</td><td>$\${s.total.toFixed(2)}</td></tr>`).join('');
+</script></body></html>

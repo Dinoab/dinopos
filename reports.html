@@ -1,0 +1,198 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Business Intelligence & Audit</title>
+    <script src="nav.js"></script>
+</head>
+<body>
+    <div class="container">
+        <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:20px;">
+            <h1>📊 Business Intelligence & Audit</h1>
+            <div id="bizBranding" style="text-align:right; display:flex; align-items:center; gap:15px;">
+                </div>
+        </div>
+
+        <div style="display: grid; grid-template-columns: repeat(4, 1fr); gap: 20px; margin-bottom: 25px;">
+            <div class="card" style="border-top: 5px solid #10b981;">
+                <small>Total Cash Collected</small>
+                <h2 id="totalCash">$0.00</h2>
+            </div>
+            <div class="card" style="border-top: 5px solid #3b82f6;">
+                <small>VAT Liability</small>
+                <h2 id="totalVAT">$0.00</h2>
+            </div>
+            <div class="card" style="border-top: 5px solid #f59e0b;">
+                <small>Net Profit</small>
+                <h2 id="totalProfit">$0.00</h2>
+            </div>
+            <div class="card" style="border-top: 5px solid #6366f1;">
+                <small>Stock Asset Value</small>
+                <h2 id="totalStockVal">$0.00</h2>
+            </div>
+        </div>
+
+        <div class="card" style="background: #f8fafc; border: 1px solid #cbd5e1;">
+            <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:15px;">
+                <h3 style="margin:0;">🛡️ Stock Movement Audit</h3>
+                <div style="display:flex; gap:10px;">
+                    <button class="btn" style="background:#3b82f6;" onclick="exportAuditPDF('inflow')">📥 Export Inflow PDF</button>
+                    <button class="btn" style="background:#10b981;" onclick="exportAuditPDF('outflow')">📤 Export Outflow PDF</button>
+                </div>
+            </div>
+            <div style="display:grid; grid-template-columns: 2fr 1fr; gap:15px;">
+                <input type="text" id="auditSearch" placeholder="🔍 Search product or supplier..." oninput="renderAll()">
+                <input type="date" id="dateFilter" onchange="renderAll()">
+            </div>
+        </div>
+
+        <div class="card">
+            <h3>📈 Product Performance Analysis</h3>
+            <table id="pTable">
+                <thead>
+                    <tr>
+                        <th>Product</th>
+                        <th>Qty Sold</th>
+                        <th>Cost Value</th>
+                        <th>Revenue</th>
+                        <th>Net Profit</th>
+                        <th>Margin</th>
+                    </tr>
+                </thead>
+                <tbody></tbody>
+            </table>
+        </div>
+
+        <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 20px;">
+            <div class="card">
+                <h3>📥 Recent Inflow (Purchases)</h3>
+                <table id="purchaseTable">
+                    <thead><tr><th>Date</th><th>Item</th><th>Qty</th><th>Supplier</th></tr></thead>
+                    <tbody></tbody>
+                </table>
+            </div>
+            <div class="card">
+                <h3>📤 Recent Outflow (Sales)</h3>
+                <table id="soldTable">
+                    <thead><tr><th>Date</th><th>Item</th><th>Qty</th><th>Total</th></tr></thead>
+                    <tbody></tbody>
+                </table>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        const biz = JSON.parse(localStorage.getItem('bizProfile')) || { name: "Retail ERP", logo: "", currency: "$" };
+
+        function initBranding() {
+            const container = document.getElementById('bizBranding');
+            if(biz.logo) {
+                container.innerHTML = `<img src="${biz.logo}" style="height:40px;"> <b>${biz.name}</b>`;
+            } else {
+                container.innerHTML = `<b>${biz.name}</b>`;
+            }
+        }
+
+        function renderAll() {
+            const query = document.getElementById('auditSearch').value.toLowerCase();
+            const dateQ = document.getElementById('dateFilter').value;
+            const formattedDate = dateQ ? new Date(dateQ).toLocaleDateString() : null;
+
+            const sales = JSON.parse(localStorage.getItem('salesHistory')) || [];
+            const purchases = JSON.parse(localStorage.getItem('purchaseHistory')) || [];
+            const inventory = JSON.parse(localStorage.getItem('myInventory')) || [];
+
+            let cash = 0, vat = 0, netProfit = 0;
+            const profitMap = {};
+
+            // 1. Calculate Financials
+            sales.forEach(s => {
+                if (formattedDate && s.date !== formattedDate) return;
+                cash += (s.total || 0);
+                vat += (s.vat || 0);
+
+                (s.items || []).forEach(item => {
+                    if (!item.name.toLowerCase().includes(query)) return;
+                    if (!profitMap[item.name]) {
+                        const invItem = inventory.find(x => x.name === item.name);
+                        profitMap[item.name] = { qty: 0, rev: 0, cost: invItem ? invItem.cp : 0, disc: 0 };
+                    }
+                    profitMap[item.name].qty += item.qty;
+                    profitMap[item.name].rev += (item.qty * item.price) - (item.disc || 0);
+                    profitMap[item.name].disc += (item.disc || 0);
+                });
+            });
+
+            // 2. Render Profit Table
+            document.querySelector('#pTable tbody').innerHTML = Object.keys(profitMap).map(n => {
+                const d = profitMap[n];
+                const totalCost = d.qty * d.cost;
+                const p = d.rev - totalCost;
+                netProfit += p;
+                return `<tr><td><b>${n}</b></td><td>${d.qty}</td><td>$${totalCost.toFixed(2)}</td><td>$${d.rev.toFixed(2)}</td><td style="color:green;">$${p.toFixed(2)}</td><td>${((p/d.rev)*100 || 0).toFixed(1)}%</td></tr>`;
+            }).join('');
+
+            // 3. Render Logs
+            document.querySelector('#purchaseTable tbody').innerHTML = purchases
+                .filter(p => p.name.toLowerCase().includes(query) && (!formattedDate || p.date === formattedDate))
+                .slice(-10).reverse().map(p => `<tr><td><small>${p.date}</small></td><td>${p.name}</td><td>${p.qty}</td><td>${p.sup || '-'}</td></tr>`).join('');
+
+            let soldFlat = [];
+            sales.forEach(s => (s.items || []).forEach(i => soldFlat.push({...i, date: s.date})));
+            document.querySelector('#soldTable tbody').innerHTML = soldFlat
+                .filter(i => i.name.toLowerCase().includes(query) && (!formattedDate || i.date === formattedDate))
+                .slice(-10).reverse().map(i => `<tr><td><small>${i.date}</small></td><td>${i.name}</td><td>${i.qty}</td><td>$${(i.qty*i.price - (i.disc || 0)).toFixed(2)}</td></tr>`).join('');
+
+            document.getElementById('totalCash').innerText = "$" + cash.toFixed(2);
+            document.getElementById('totalVAT').innerText = "$" + vat.toFixed(2);
+            document.getElementById('totalProfit').innerText = "$" + netProfit.toFixed(2);
+            document.getElementById('totalStockVal').innerText = "$" + inventory.reduce((a,b)=>a+(b.qty*b.cp),0).toFixed(2);
+        }
+
+        function exportAuditPDF(type) {
+            const dateQ = document.getElementById('dateFilter').value;
+            const query = document.getElementById('auditSearch').value.toLowerCase();
+            const formattedDate = dateQ ? new Date(dateQ).toLocaleDateString() : "All Periods";
+            
+            let data = [];
+            let title = type === 'inflow' ? "Stock Inflow (Purchases)" : "Stock Outflow (Sales)";
+
+            if(type === 'inflow') {
+                data = (JSON.parse(localStorage.getItem('purchaseHistory')) || [])
+                    .filter(p => p.name.toLowerCase().includes(query) && (formattedDate === "All Periods" || p.date === formattedDate))
+                    .map(d => ({ col1: d.date, col2: d.name, col3: d.qty, col4: d.sup || '-' }));
+            } else {
+                const sales = JSON.parse(localStorage.getItem('salesHistory')) || [];
+                sales.forEach(s => (s.items || []).forEach(i => {
+                    if(i.name.toLowerCase().includes(query) && (formattedDate === "All Periods" || s.date === formattedDate)) {
+                        data.push({ col1: s.date, col2: i.name, col3: i.qty, col4: "$" + (i.qty * i.price - (i.disc || 0)).toFixed(2) });
+                    }
+                }));
+            }
+
+            const win = window.open('', '_blank');
+            win.document.write(`
+                <html><body style="font-family:sans-serif; padding:40px;">
+                    <div style="text-align:center; margin-bottom:30px;">
+                        ${biz.logo ? `<img src="${biz.logo}" style="height:80px; margin-bottom:10px;">` : ''}
+                        <h1 style="margin:0;">${biz.name}</h1>
+                        <h3 style="color:#666;">${title} Audit Report</h3>
+                        <p><b>Filter:</b> ${query || 'None'} | <b>Date:</b> ${formattedDate}</p>
+                    </div>
+                    <table border="1" style="width:100%; border-collapse:collapse; margin-top:20px;">
+                        <thead style="background:#f4f4f4;">
+                            <tr><th>Date</th><th>Item Name</th><th>Quantity</th><th>${type === 'inflow' ? 'Supplier' : 'Value'}</th></tr>
+                        </thead>
+                        <tbody>${data.map(d => `<tr><td>${d.col1}</td><td>${d.col2}</td><td>${d.col3}</td><td>${d.col4}</td></tr>`).join('')}</tbody>
+                    </table>
+                    <div style="margin-top:40px; border-top:1px solid #eee; padding-top:10px; font-size:0.8rem; color:#999;">
+                        Generated by Enterprise ERP System on ${new Date().toLocaleString()}
+                    </div>
+                    <script>window.print();<\/script>
+                </body></html>`);
+        }
+
+        initBranding();
+        renderAll();
+    </script>
+</body>
+</html>

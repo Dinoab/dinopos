@@ -1,0 +1,223 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>POS Terminal - Enterprise ERP</title>
+    <script src="nav.js"></script>
+</head>
+<body>
+    <div class="container">
+        <div style="display:flex; gap:20px;">
+            <div style="flex:2;">
+                <div class="card" style="border-left: 5px solid var(--primary);">
+                    <label><b>STEP 1: Select Customer</b></label>
+                    <select id="cSelect" style="width:100%; margin-top:5px;" onchange="updateReceiptHeader()">
+                        <option value="">👤 Guest Customer (Walk-in)</option>
+                    </select>
+                </div>
+
+                <div class="card">
+                    <div style="display:grid; grid-template-columns: 2fr 1fr 1fr 1fr; gap:10px; align-items:end;">
+                        <div>
+                            <label><b>STEP 2: Product</b></label>
+                            <input type="text" id="pSearch" placeholder="Search..." oninput="loadProducts()">
+                        </div>
+                        <div>
+                            <label><b>STEP 3: Qty</b></label>
+                            <input type="number" id="pQty" value="1" min="1" style="width:100%">
+                        </div>
+                        <div>
+                            <label><b>STEP 4: Disc($)</b></label>
+                            <input type="number" id="pDisc" value="0" min="0" style="width:100%">
+                        </div>
+                        <button class="btn" onclick="addToCart()" style="background:var(--accent); height:45px;">🛒 Add</button>
+                    </div>
+                    
+                    <div style="margin-top:20px; max-height: 250px; overflow-y: auto; border:1px solid #eee;">
+                        <table id="pTable">
+                            <thead><tr><th>Select</th><th>Product</th><th>Stock</th><th>Price</th></tr></thead>
+                            <tbody></tbody>
+                        </table>
+                    </div>
+                    <p id="stockWarn" style="color:red; font-size:0.8rem; margin-top:10px; display:none;">⚠️ Warning: You are attempting to sell more than what is in stock!</p>
+                </div>
+
+                <div class="card" style="display:flex; gap:20px; background:#f8fafc;">
+                    <label><input type="radio" name="mode" value="sale" checked onchange="renderCart()"> 🛍️ Sale</label>
+                    <label style="color:red;"><input type="radio" name="mode" value="return" onchange="renderCart()"> 🔄 Return</label>
+                </div>
+            </div>
+
+            <div style="flex:1;">
+                <div class="card" id="receiptWindow" style="position:sticky; top:20px; border-top: 5px solid #333;">
+                    <div style="text-align:center; margin-bottom:15px;" id="bizHeader"></div>
+                    
+                    <div style="font-size:0.8rem; margin-bottom:10px; padding:10px; background:#f1f5f9; border-radius:5px;">
+                        <b>BILL TO:</b> <span id="targetCust">Guest Customer</span><br>
+                        <b>PREV. BALANCE:</b> <span id="prevBalDisplay">$0.00</span>
+                    </div>
+
+                    <div id="cartList" style="min-height:150px; border-bottom:1px solid #eee; margin-bottom:15px;"></div>
+                    
+                    <div style="line-height:1.8; font-size: 0.9rem;">
+                        Subtotal: <span style="float:right;">$<span id="sub">0.00</span></span><br>
+                        Discount: <span style="float:right;">-$<span id="discTotal">0.00</span></span><br>
+                        Tax (VAT): <span style="float:right;">$<span id="vat">0.00</span></span><br>
+                        <hr>
+                        <h2 id="totalRow" style="margin:0;">Total: <span style="float:right;">$<span id="total">0.00</span></span></h2>
+                        <div style="margin-top:10px; padding:5px; background:#fff9c4; border-radius:3px; font-weight:bold;">
+                            NEW BALANCE: <span style="float:right;">$<span id="newBalDisplay">0.00</span></span>
+                        </div>
+                    </div>
+
+                    <div style="display:grid; grid-template-columns: 1fr 1fr; gap:10px; margin-top:20px;">
+                        <button class="btn" style="background:#25d366;" onclick="process('wa')">💬 WhatsApp</button>
+                        <button class="btn" style="background:#3b82f6;" onclick="process('pdf')">📄 Save PDF</button>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+<script>
+    let cart = [];
+    const biz = JSON.parse(localStorage.getItem('bizProfile')) || { name: "Retail ERP Pro", address: "123 Business Way", vat: 15, taxId: "VAT-2026-XYZ" };
+
+    function init() {
+        document.getElementById('bizHeader').innerHTML = `<h3 style="margin:0;">${biz.name}</h3><small>${biz.address}<br>Tax ID: ${biz.taxId}</small>`;
+        const cSelect = document.getElementById('cSelect');
+        const custs = JSON.parse(localStorage.getItem('customers')) || [];
+        custs.forEach(c => cSelect.innerHTML += `<option value="${c.name}">${c.name}</option>`);
+        loadProducts();
+    }
+
+    function updateReceiptHeader() {
+        const cName = document.getElementById('cSelect').value;
+        const custs = JSON.parse(localStorage.getItem('customers')) || [];
+        const customer = custs.find(c => c.name === cName) || { balance: 0 };
+        document.getElementById('targetCust').innerText = cName || "Guest Customer";
+        document.getElementById('prevBalDisplay').innerText = "$" + (customer.balance || 0).toFixed(2);
+        renderCart();
+    }
+
+    function loadProducts() {
+        const inv = JSON.parse(localStorage.getItem('myInventory')) || [];
+        const q = document.getElementById('pSearch').value.toLowerCase();
+        const tbody = document.querySelector('#pTable tbody');
+        
+        tbody.innerHTML = inv.filter(i => i.name.toLowerCase().includes(q)).map(i => {
+            const isLow = i.qty < 5;
+            const rowStyle = isLow ? 'color: #ef4444; font-weight: bold;' : '';
+            return `
+                <tr style="${rowStyle}">
+                    <td><input type="radio" name="pPick" value="${i.name}" data-price="${i.sp}" data-stock="${i.qty}"></td>
+                    <td>${i.name} ${isLow ? '⚠️' : ''}</td>
+                    <td>${i.qty}</td>
+                    <td>$${i.sp.toFixed(2)}</td>
+                </tr>`;
+        }).join('');
+    }
+
+    function addToCart() {
+        const picked = document.querySelector('input[name="pPick"]:checked');
+        const qty = parseInt(document.getElementById('pQty').value);
+        const disc = parseFloat(document.getElementById('pDisc').value) || 0;
+        const mode = document.querySelector('input[name="mode"]:checked').value;
+
+        if(!picked) return alert("Select a product.");
+        
+        const currentStock = parseInt(picked.dataset.stock);
+        const name = picked.value;
+
+        // Stock Validation (Only for Sales, not Returns)
+        if(mode === 'sale' && qty > currentStock) {
+            document.getElementById('stockWarn').style.display = 'block';
+            alert(`Insufficient Stock! Only ${currentStock} units available.`);
+            return;
+        } else {
+            document.getElementById('stockWarn').style.display = 'none';
+        }
+        
+        const price = parseFloat(picked.dataset.price);
+        cart.push({ name, price, qty, disc });
+        
+        document.getElementById('pQty').value = 1;
+        document.getElementById('pDisc').value = 0;
+        renderCart();
+    }
+
+    function renderCart() {
+        let sub = cart.reduce((a,b) => a + (b.price * b.qty), 0);
+        let disc = cart.reduce((a,b) => a + b.disc, 0);
+        let vVal = (sub - disc) * (biz.vat / 100);
+        let finalTotal = (sub - disc) + vVal;
+
+        const cName = document.getElementById('cSelect').value;
+        const custs = JSON.parse(localStorage.getItem('customers')) || [];
+        const customer = custs.find(c => c.name === cName) || { balance: 0 };
+        
+        document.getElementById('sub').innerText = sub.toFixed(2);
+        document.getElementById('discTotal').innerText = disc.toFixed(2);
+        document.getElementById('vat').innerText = vVal.toFixed(2);
+        document.getElementById('total').innerText = finalTotal.toFixed(2);
+        document.getElementById('newBalDisplay').innerText = (customer.balance + finalTotal).toFixed(2);
+
+        document.getElementById('cartList').innerHTML = cart.map((i, idx) => `
+            <div style="display:flex; justify-content:space-between; margin-bottom:5px; font-size:0.85rem;">
+                <span>${i.qty}x ${i.name}</span>
+                <span>$${(i.qty*i.price - i.disc).toFixed(2)} <small onclick="cart.splice(${idx},1);renderCart()" style="color:red; cursor:pointer">✕</small></span>
+            </div>`).join('');
+    }
+
+    function process(method) {
+        if(!cart.length) return alert("Cart empty");
+        const isRet = document.querySelector('input[name="mode"]:checked').value === 'return';
+        const finalTotal = parseFloat(document.getElementById('total').innerText);
+        const cName = document.getElementById('cSelect').value;
+        
+        const custs = JSON.parse(localStorage.getItem('customers')) || [];
+        const customer = custs.find(c => c.name === cName) || { name: "Guest", balance: 0, phone: "" };
+
+        const inv = JSON.parse(localStorage.getItem('myInventory')) || [];
+        cart.forEach(item => {
+            const p = inv.find(x => x.name === item.name);
+            if(p) p.qty -= (isRet ? -item.qty : item.qty);
+        });
+
+        if(cName) {
+            const cIdx = custs.findIndex(c => c.name === cName);
+            custs[cIdx].balance += (isRet ? -finalTotal : finalTotal);
+            localStorage.setItem('customers', JSON.stringify(custs));
+        }
+
+        const sales = JSON.parse(localStorage.getItem('salesHistory')) || [];
+        sales.push({ date: new Date().toLocaleDateString(), customer: customer.name, total: isRet ? -finalTotal : finalTotal, items: [...cart] });
+        localStorage.setItem('salesHistory', JSON.stringify(sales));
+        localStorage.setItem('myInventory', JSON.stringify(inv));
+
+        const itemText = cart.map(i => `• ${i.name} x${i.qty}: $${(i.qty*i.price - i.disc).toFixed(2)}`).join('\n');
+        const summary = `\nSubtotal: $${document.getElementById('sub').innerText}\nDiscount: -$${document.getElementById('discTotal').innerText}\nTotal: $${finalTotal.toFixed(2)}\nNew Balance: $${document.getElementById('newBalDisplay').innerText}`;
+
+        if(method === 'wa') {
+            if(!customer.phone) return alert("No phone for WhatsApp");
+            let msg = `*${biz.name} - RECEIPT*\n---\n*CUSTOMER:* ${customer.name}\n${itemText}\n---\n${summary}`;
+            window.open(`https://wa.me/${customer.phone}?text=${encodeURIComponent(msg)}`);
+        } else {
+            const win = window.open('', '_blank');
+            win.document.write(`<html><body style="font-family:sans-serif; padding:30px;">
+                <center><h2>${biz.name}</h2><p>${biz.address}</p></center>
+                <hr>
+                <b>BILL TO:</b> ${customer.name}<br>
+                <b>PREVIOUS BALANCE:</b> $${customer.balance.toFixed(2)}<hr>
+                <table border="1" style="width:100%; border-collapse:collapse;">
+                ${cart.map(i => `<tr><td>${i.qty}x ${i.name}</td><td>$${(i.qty*i.price - i.disc).toFixed(2)}</td></tr>`).join('')}
+                </table>
+                <p style="text-align:right;"><b>Total Today: $${finalTotal.toFixed(2)}</b><br>
+                <span style="background:#eee; padding:5px;"><b>NEW TOTAL ACCOUNT BALANCE: $${document.getElementById('newBalDisplay').innerText}</b></span></p>
+                <script>window.print();<\/script></body></html>`);
+        }
+        cart = []; updateReceiptHeader(); loadProducts();
+    }
+    init();
+</script>
+</body>
+</html>

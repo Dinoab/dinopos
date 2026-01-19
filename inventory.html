@@ -1,0 +1,174 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Inventory - Enterprise ERP</title>
+    <script src="nav.js"></script>
+</head>
+<body>
+    <div class="container">
+        <h1>📦 Inventory & Stock Control</h1>
+
+        <div class="card">
+            <h3>Add / Restock Inventory</h3>
+            <div style="display:grid; grid-template-columns: repeat(3, 1fr); gap:15px;">
+                <div>
+                    <label>Product Name</label><br>
+                    <input id="n" placeholder="Product Name" style="width:100%">
+                </div>
+                <div>
+                    <label>Quantity to Add</label><br>
+                    <input id="q" type="number" placeholder="0" style="width:100%">
+                </div>
+                <div>
+                    <label>Min Level (Alert)</label><br>
+                    <input id="min" type="number" value="5" style="width:100%">
+                </div>
+                <div>
+                    <label>Cost Price (Per Unit)</label><br>
+                    <input id="cp" type="number" placeholder="0.00" style="width:100%">
+                </div>
+                <div>
+                    <label>Selling Price (New)</label><br>
+                    <input id="sp" type="number" placeholder="0.00" style="width:100%">
+                </div>
+                <div>
+                    <label>Supplier</label><br>
+                    <select id="supSelect" style="width:100%"><option value="">Select Supplier</option></select>
+                </div>
+            </div>
+            <button class="btn" onclick="add()" style="width:100%; margin-top:15px; background:var(--primary);">📥 Save & Update Stock</button>
+        </div>
+
+        <div class="card" style="background: #fffbeb; border: 1px solid #fef3c7; display: flex; justify-content: space-between; align-items: center;">
+            <div>
+                <h3 style="margin:0; color: #92400e;">🛒 Restock Assistant</h3>
+                <p style="margin:0; font-size: 0.85rem; color: #b45309;">Items highlighted in red are below your minimum threshold.</p>
+            </div>
+            <button class="btn" style="background: #d97706;" onclick="printReorderList()">📋 Generate Reorder List</button>
+        </div>
+
+        <div class="card">
+            <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:15px;">
+                <h3>Current Stock Assets</h3>
+                <input type="text" id="invSearch" placeholder="Search stock..." oninput="render()" style="width:250px;">
+            </div>
+            <table id="iTable">
+                <thead>
+                    <tr>
+                        <th>Product</th>
+                        <th>Qty</th>
+                        <th>Min</th>
+                        <th>Cost (Avg)</th>
+                        <th>Selling Price</th>
+                        <th>Total Value</th>
+                        <th>Actions</th>
+                    </tr>
+                </thead>
+                <tbody></tbody>
+            </table>
+        </div>
+    </div>
+
+    <script>
+        // Load Suppliers into Dropdown
+        const sups = JSON.parse(localStorage.getItem('suppliers')) || [];
+        const sSelect = document.getElementById('supSelect');
+        sups.forEach(s => sSelect.innerHTML += `<option value="${s.name}">${s.name}</option>`);
+
+        function add() {
+            const inv = JSON.parse(localStorage.getItem('myInventory')) || [];
+            const n = document.getElementById('n').value.trim();
+            const q = parseInt(document.getElementById('q').value);
+            const cp = parseFloat(document.getElementById('cp').value) || 0;
+            const sp = parseFloat(document.getElementById('sp').value) || 0;
+            const min = parseInt(document.getElementById('min').value) || 5;
+            const supName = document.getElementById('supSelect').value;
+
+            if(!n || isNaN(q)) return alert("Please enter Product Name and Quantity");
+
+            const exist = inv.find(i => i.name.toLowerCase() === n.toLowerCase());
+            
+            // 1. Logic: Weighted Average Costing (WAC)
+            if(exist) {
+                const oldTotalValue = exist.qty * exist.cp;
+                const newPurchaseValue = q * cp;
+                exist.qty += q;
+                // Formula: (Old Total Value + New Purchase Value) / New Total Quantity
+                exist.cp = (oldTotalValue + newPurchaseValue) / exist.qty;
+                exist.sp = sp; // Update to latest selling price
+                exist.min = min;
+            } else {
+                inv.push({name: n, qty: q, cp: cp, sp: sp, min: min});
+            }
+            
+            // 2. Integration: Update Supplier Debt Balance
+            if(supName) {
+                const suppliers = JSON.parse(localStorage.getItem('suppliers')) || [];
+                const targetSup = suppliers.find(s => s.name === supName);
+                if(targetSup) {
+                    targetSup.balance = (targetSup.balance || 0) + (q * cp);
+                    localStorage.setItem('suppliers', JSON.stringify(suppliers));
+                }
+            }
+
+            // 3. Logic: Log to Purchase History for Reports
+            const pur = JSON.parse(localStorage.getItem('purchaseHistory')) || [];
+            pur.push({date: new Date().toLocaleDateString(), name: n, qty: q, cp: cp, sup: supName});
+            
+            localStorage.setItem('purchaseHistory', JSON.stringify(pur));
+            localStorage.setItem('myInventory', JSON.stringify(inv));
+            
+            alert("Inventory updated successfully!");
+            location.reload();
+        }
+
+        function render() {
+            const inv = JSON.parse(localStorage.getItem('myInventory')) || [];
+            const q = document.getElementById('invSearch').value.toLowerCase();
+            const tbody = document.querySelector('#iTable tbody');
+            
+            tbody.innerHTML = inv.filter(i => i.name.toLowerCase().includes(q)).map(i => {
+                const isLow = i.qty <= (i.min || 5);
+                const rowStyle = isLow ? 'style="background-color: #fee2e2; color: #b91c1c;"' : '';
+                
+                return `
+                    <tr ${rowStyle}>
+                        <td><b>${isLow ? '⚠️ ' : ''}${i.name}</b></td>
+                        <td style="font-weight:bold;">${i.qty}</td>
+                        <td>${i.min || 5}</td>
+                        <td>$${i.cp.toFixed(2)}</td>
+                        <td>$${i.sp.toFixed(2)}</td>
+                        <td>$${(i.qty * i.cp).toFixed(2)}</td>
+                        <td><button onclick="deleteItem('${i.name}')" style="background:none; border:none; color:red; cursor:pointer;">🗑️</button></td>
+                    </tr>`;
+            }).join('');
+        }
+
+        function deleteItem(name) {
+            if(confirm("Delete " + name + " from inventory?")) {
+                let inv = JSON.parse(localStorage.getItem('myInventory')) || [];
+                inv = inv.filter(i => i.name !== name);
+                localStorage.setItem('myInventory', JSON.stringify(inv));
+                render();
+            }
+        }
+
+        function printReorderList() {
+            const inv = JSON.parse(localStorage.getItem('myInventory')) || [];
+            const lowItems = inv.filter(i => i.qty <= (i.min || 5));
+            if(lowItems.length === 0) return alert("Stock is healthy!");
+
+            const win = window.open('', '_blank');
+            win.document.write(`<html><body style="font-family:sans-serif; padding:20px;">
+                <h2>🛒 Reorder Shopping List</h2><hr>
+                <table border="1" style="width:100%; border-collapse:collapse;">
+                    <thead><tr><th>Product</th><th>Stock</th><th>Target</th></tr></thead>
+                    <tbody>` + lowItems.map(i => `<tr><td>${i.name}</td><td>${i.qty}</td><td>${i.min * 3}</td></tr>`).join('') + `</tbody>
+                </table>
+                <script>window.print();<\/script></body></html>`);
+        }
+
+        render();
+    </script>
+</body>
+</html>

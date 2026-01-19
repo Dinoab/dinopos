@@ -1,0 +1,152 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>System Settings - Enterprise ERP</title>
+    <script src="nav.js"></script>
+</head>
+<body>
+    <div class="container">
+        <h1>⚙️ System Settings & Branding</h1>
+        
+        <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 20px;">
+            <div class="card">
+                <h3>🏢 Business Profile & Branding</h3>
+                
+                <div style="display: flex; gap: 20px; align-items: center; margin-bottom: 20px; padding: 10px; background: #f8fafc; border-radius: 8px;">
+                    <div id="logoPreview" style="width: 80px; height: 80px; border: 2px dashed #cbd5e1; display: flex; align-items: center; justify-content: center; overflow: hidden;">
+                        <span style="font-size: 0.7rem; color: #94a3b8;">No Logo</span>
+                    </div>
+                    <div>
+                        <label><b>Company Logo</b></label><br>
+                        <input type="file" id="logoInput" accept="image/*" onchange="handleLogo(event)" style="font-size: 0.8rem;">
+                        <p style="font-size: 0.7rem; color: #64748b; margin: 5px 0 0 0;">Recommended: Square PNG/JPG</p>
+                    </div>
+                </div>
+
+                <label>Business Name</label>
+                <input type="text" id="bizName">
+                
+                <label>Physical Address</label>
+                <textarea id="bizAddress" rows="2"></textarea>
+                
+                <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-top: 10px;">
+                    <div>
+                        <label>VAT Rate (%)</label>
+                        <input type="number" id="bizVatRate">
+                    </div>
+                    <div>
+                        <label>Currency Symbol</label>
+                        <input type="text" id="bizCurrency">
+                    </div>
+                </div>
+                <button class="btn" onclick="saveProfile()" style="width:100%; margin-top: 20px;">💾 Save Profile & Logo</button>
+            </div>
+
+            <div class="card" style="border-left: 5px solid #f59e0b;">
+                <h3>🔐 System Security (PIN)</h3>
+                <div style="background: #fffbeb; padding: 15px; border-radius: 8px; border: 1px solid #fef3c7;">
+                    <label>Set 4-Digit PIN</label>
+                    <input type="password" id="sysPin" maxlength="4" style="letter-spacing: 10px; font-size: 1.2rem; text-align: center;">
+                    <div style="margin-top:15px;">
+                        <label style="display:flex; align-items:center; gap:10px; cursor:pointer;">
+                            <input type="checkbox" id="pinEnabled"> <b>Enable Security</b>
+                        </label>
+                    </div>
+                    <button class="btn" onclick="saveSecurity()" style="width:100%; margin-top: 15px; background: #d97706;">🔒 Update Security</button>
+                </div>
+            </div>
+
+            <div class="card" style="border-left: 5px solid #10b981;">
+                <h3>💾 Data Management</h3>
+                <button class="btn" style="background: #10b981; width:100%;" onclick="exportData()">📥 Export Backup</button>
+                <hr style="margin: 20px 0;">
+                <input type="file" id="importFile" accept=".json">
+                <button class="btn" style="background: var(--sidebar); width:100%; margin-top:10px;" onclick="importData()">📤 Restore Data</button>
+                <button class="btn" style="background: var(--danger); width:100%; margin-top: 30px;" onclick="factoryReset()">🔥 Full System Wipe</button>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        let base64Logo = "";
+
+        function handleLogo(event) {
+            const file = event.target.files[0];
+            const reader = new FileReader();
+            reader.onload = function(e) {
+                base64Logo = e.target.result;
+                document.getElementById('logoPreview').innerHTML = `<img src="${base64Logo}" style="width:100%; height:100%; object-fit:contain;">`;
+            };
+            reader.readAsDataURL(file);
+        }
+
+        function loadSettings() {
+            const biz = JSON.parse(localStorage.getItem('bizProfile')) || { name: "", address: "", vat: 15, currency: "$", logo: "" };
+            document.getElementById('bizName').value = biz.name || "";
+            document.getElementById('bizAddress').value = biz.address || "";
+            document.getElementById('bizVatRate').value = biz.vat || 15;
+            document.getElementById('bizCurrency').value = biz.currency || "$";
+            
+            if (biz.logo) {
+                base64Logo = biz.logo;
+                document.getElementById('logoPreview').innerHTML = `<img src="${biz.logo}" style="width:100%; height:100%; object-fit:contain;">`;
+            }
+
+            const sec = JSON.parse(localStorage.getItem('sysSecurity')) || { pin: "", enabled: false };
+            document.getElementById('sysPin').value = sec.pin;
+            document.getElementById('pinEnabled').checked = sec.enabled;
+        }
+
+        function saveProfile() {
+            const profile = {
+                name: document.getElementById('bizName').value,
+                address: document.getElementById('bizAddress').value,
+                vat: parseFloat(document.getElementById('bizVatRate').value),
+                currency: document.getElementById('bizCurrency').value,
+                logo: base64Logo // Saving the logo string
+            };
+            localStorage.setItem('bizProfile', JSON.stringify(profile));
+            alert("Profile and Logo saved successfully!");
+        }
+
+        function saveSecurity() {
+            const pin = document.getElementById('sysPin').value;
+            const isEnabled = document.getElementById('pinEnabled').checked;
+            if (isEnabled && pin.length !== 4) return alert("PIN must be 4 digits.");
+            localStorage.setItem('sysSecurity', JSON.stringify({ pin, enabled: isEnabled }));
+            alert("Security updated!");
+        }
+
+        function exportData() {
+            const data = {};
+            for (let i = 0; i < localStorage.length; i++) {
+                const key = localStorage.key(i);
+                data[key] = JSON.parse(localStorage.getItem(key));
+            }
+            const blob = new Blob([JSON.stringify(data)], { type: 'application/json' });
+            const a = document.createElement('a');
+            a.href = URL.createObjectURL(blob);
+            a.download = `ERP_Backup.json`;
+            a.click();
+        }
+
+        function importData() {
+            const file = document.getElementById('importFile').files[0];
+            const reader = new FileReader();
+            reader.onload = function(e) {
+                const data = JSON.parse(e.target.result);
+                localStorage.clear();
+                for (const key in data) localStorage.setItem(key, JSON.stringify(data[key]));
+                location.reload();
+            };
+            reader.readAsText(file);
+        }
+
+        function factoryReset() {
+            if(confirm("DANGER: This wipes everything.")) { localStorage.clear(); location.reload(); }
+        }
+
+        loadSettings();
+    </script>
+</body>
+</html>
